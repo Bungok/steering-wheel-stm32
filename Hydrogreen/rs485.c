@@ -16,18 +16,18 @@
 // ******************************************************************************************************************************************************** //
 
 #define UART_PORT_RS485 		huart2
-#define TX_FRAME_LENGHT 		11					///< Dlugosc wysylanej ramki danych (z suma CRC)
-#define RX_FRAME_LENGHT 		40					///< Dlugosc otrzymywanej ramki danych (z suma CRC)
-#define SOT_BYTE			0x12					///< Bajt wskazujacy na poczatek ramki
-#define EOT_BYTE			0x17					///< Bajt wskazujacy na koniec ramki
-#define BUFFER_SIZE         128
+#define TX_FRAME_LENGTH 		12					///< Dlugosc wysylanej ramki danych (z suma CRC)
+#define RX_FRAME_LENGTH 		40					///< Dlugosc otrzymywanej ramki danych (z suma CRC)
+#define SOT_BYTE			    0x12				///< Bajt wskazujacy na poczatek ramki
+#define EOT_BYTE			    0x17				///< Bajt wskazujacy na koniec ramki
+#define BUFFER_SIZE             128					///< Dlugosc bufora z danymi
 
 // ******************************************************************************************************************************************************** //
 
-static uint8_t dataFromRx[BUFFER_SIZE]; ///< Tablica w ktorej zawarte sa nieprzetworzone przychodzace dane
-volatile static uint16_t posInRxTab;///< Aktualna pozycja w tabeli wykorzystywanej do odbioru danych
+volatile static uint8_t dataFromRx[BUFFER_SIZE]; ///< Tablica w ktorej zawarte sa nieprzetworzone przychodzace dane
+volatile static uint16_t posInRxTab; ///< Aktualna pozycja w tabeli wykorzystywanej do odbioru danych
 volatile static uint8_t intRxCplt; ///< Flaga informujaca o otrzymaniu nowego bajtu (gdy 1 - otrzymanowy nowy bajt)
-static uint8_t dataToTx[TX_FRAME_LENGHT]; ///< Tablica w ktorej zawarta jest ramka danych do wyslania
+static uint8_t dataToTx[TX_FRAME_LENGTH]; ///< Tablica w ktorej zawarta jest ramka danych do wyslania
 static uint16_t posInTxTab;	///< Aktualna pozycja w tabeli wykorzystywanej do wysylania danych
 uint8_t rs485_flt = RS485_NEW_DATA_TIMEOUT;	///< Zmienna przechowujaca aktualny kod bledu magistrali
 
@@ -40,7 +40,8 @@ volatile uint8_t foundStart = 0;
  * @struct RS485_BUFFER
  * @brief Struktura zawierajaca bufory wykorzystywane do transmisji danych
  */
-typedef struct {
+typedef struct
+{
 	uint8_t tx;
 	uint8_t rx;
 } RS485_BUFFER;
@@ -62,9 +63,10 @@ static void resetActData(void);
  * @fn rs485_init(void)
  * @brief Inicjalizacja magistrali RS-485, umiescic wewnatrz hydrogreen_init(void)
  */
-void rs485_init(void) {
-	memset(dataFromRx, '\0', RX_FRAME_LENGHT);
-	memset(dataToTx, '\0', TX_FRAME_LENGHT);
+void rs485_init(void)
+{
+	memset(dataFromRx, '\0', RX_FRAME_LENGTH);
+	memset(dataToTx, '\0', TX_FRAME_LENGTH);
 
 	prepareNewDataToSend(); //Przygotuj nowy pakiet danych
 
@@ -75,50 +77,61 @@ void rs485_init(void) {
  * @fn rs485_step(void)
  * @brief Funkcja obslugujaca magistrale, umiescic wewnatrz hydrogreen_step(void)
  */
-void rs485_step(void) {
+void rs485_step(void)
+{
 	receiveData();
 	sendData();
 }
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-	//Przypisz otrzymany bajt do analizowanej tablicy
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	// Write incoming byte to array
 	dataFromRx[posInRxTab] = RS485_BUFF.rx;
 
-	if (!foundStart) {
-		if (dataFromRx[posInRxTab] == SOT_BYTE) {
+	if (!foundStart)
+	{
+		if (dataFromRx[posInRxTab] == SOT_BYTE)
+		{
+			// 1 variant - found start byte
 			foundStart = 1;
-			dataFromRx[0] = SOT_BYTE;
 			posInRxTab = 1;
-			HAL_UART_Receive_IT(&UART_PORT_RS485, &RS485_BUFF.rx, 1);
-			return;
-		} else {
-			posInRxTab++;
-			HAL_UART_Receive_IT(&UART_PORT_RS485, &RS485_BUFF.rx, 1);
-			return;
+			dataFromRx[0] = SOT_BYTE;
 		}
+		else
+		{
+			// 2 variant - not found start byte yet
+			posInRxTab++;
+		}
+
+		HAL_UART_Receive_IT(&UART_PORT_RS485, &RS485_BUFF.rx, 1);
+		return;
 	}
 
 	posInRxTab++;
 
-	//Zabezpieczenie przed wyjsciem poza zakres bufora
-	if (posInRxTab > BUFFER_SIZE) {
+	// Make sure there is no overflow in array size
+	if (posInRxTab > BUFFER_SIZE)
+	{
 		posInRxTab = 0;
 	}
 
-	if (posInRxTab == RX_FRAME_LENGHT) {
-		if (dataFromRx[RX_FRAME_LENGHT - 1] == EOT_BYTE) {
+	if (posInRxTab == RX_FRAME_LENGTH)
+	{
+		if (dataFromRx[RX_FRAME_LENGTH - 1] == EOT_BYTE)
+		{
+			// 3 variant - found end byte
 			intRxCplt = 1;
-			posInRxTab = 0;
-			foundStart = 0;
-			HAL_UART_Receive_IT(&UART_PORT_RS485, &RS485_BUFF.rx, 1);
-		} else {
-			posInRxTab = 0;
-			foundStart = 0;
-			HAL_UART_Receive_IT(&UART_PORT_RS485, &RS485_BUFF.rx, 1);
-			return;
 		}
+		// 4 variant - not found start byte
+
+		posInRxTab = 0;
+		foundStart = 0;
+
+		HAL_UART_Receive_IT(&UART_PORT_RS485, &RS485_BUFF.rx, 1);
+		return;
 	}
 
+	// 5 variant - byte between start and end
 	HAL_UART_Receive_IT(&UART_PORT_RS485, &RS485_BUFF.rx, 1);
 }
 
@@ -126,71 +139,72 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
  * @fn receiveData(void)
  * @brief Funkcja ktorej zadaniem jest obsluga linii RX, umiescic wewnatrz rs485_step()
  */
-static void receiveData(void) {
-	//Nowe dane zostaly otrzymane, zeruj flage informujaca o zakonczeniu transmisji
-	if (intRxCplt) {
+static void receiveData(void)
+{
+	if (intRxCplt)
+	{
 		intRxCplt = 0;
-	} else {
+	}
+	else
+	{
+		// TODO count occurrences; reset state after about 50
 		return;
 	}
 
-//	if (dataFromRx[RX_FRAME_LENGHT - 1] == EOT_BYTE &&
-//			dataFromRx[0] == SOT_BYTE) {
-		//Na czas przetwarzania danych wylacz przerwania
-		__disable_irq();
+	// TODO check sum of SOT and EOT byte
+	// TODO check CRC
 
-		//Czas minal, oznacza to koniec ramki
-		posInRxTab = 0;
-
-		//OBLICZ SUME KONTROLNA
-//		uint8_t crcSumOnMCU = HAL_CRC_Calculate(&hcrc, (uint32_t*) dataFromRx,
-//				(RX_FRAME_LENGHT - 2));
-
-		//Sprawdz czy sumy kontrolne oraz bajt EOT (End Of Tranmission) sie zgadzaja
-		//	if ((dataFromRx[RX_FRAME_LENGHT - 1] == EOT_BYTE)
-		//			&& (crcSumOnMCU == dataFromRx[RX_FRAME_LENGHT - 2])) {
-		processReceivedData();
-		__enable_irq();
-//	}
+	__disable_irq();
+	posInRxTab = 0;
+	processReceivedData();
+	__enable_irq();
 }
 
 /**
  * @fn processReveivedData()
  * @brief Funkcja przypisujaca odebrane dane do zmiennych docelowych
  */
-static void processReceivedData(void) {
+static void processReceivedData(void)
+{
 	uint8_t i = 1;
 
 	RS485_RX_VERIFIED_DATA.interimSpeed = dataFromRx[i];
 	RS485_RX_VERIFIED_DATA.averageSpeed = dataFromRx[++i];
 
-	for (uint8_t k = 0; k < 2; k++) {
+	for (uint8_t k = 0; k < 2; k++)
+	{
 		RS485_RX_VERIFIED_DATA.laptime_minutes.array[k] = dataFromRx[++i];
 	}
 
 	RS485_RX_VERIFIED_DATA.laptime_seconds = dataFromRx[++i];
 
-	for (uint8_t k = 0; k < 2; k++) {
+	for (uint8_t k = 0; k < 2; k++)
+	{
 		RS485_RX_VERIFIED_DATA.laptime_miliseconds.array[k] = dataFromRx[++i];
 	}
-	for (uint8_t k = 0; k < 4; k++) {
+	for (uint8_t k = 0; k < 4; k++)
+	{
 		RS485_RX_VERIFIED_DATA.FC_V.array[k] = dataFromRx[++i];
 	}
 
-	for (uint8_t k = 0; k < 4; k++) {
+	for (uint8_t k = 0; k < 4; k++)
+	{
 		RS485_RX_VERIFIED_DATA.FC_TEMP.array[k] = dataFromRx[++i];
 	}
 
-	for (uint8_t k = 0; k < 2; k++) {
+	for (uint8_t k = 0; k < 2; k++)
+	{
 		RS485_RX_VERIFIED_DATA.fcFanRPM.array[k] = dataFromRx[++i];
 	}
 
-	for (uint8_t k = 0; k < 4; k++) {
+	for (uint8_t k = 0; k < 4; k++)
+	{
 		RS485_RX_VERIFIED_DATA.CURRENT_SENSOR_FC_TO_SC.array[k] =
 				dataFromRx[++i];
 	}
 
-	for (uint8_t k = 0; k < 4; k++) {
+	for (uint8_t k = 0; k < 4; k++)
+	{
 		RS485_RX_VERIFIED_DATA.CURRENT_SENSOR_SC_TO_MOTOR.array[k] =
 				dataFromRx[++i];
 	}
@@ -198,11 +212,13 @@ static void processReceivedData(void) {
 	RS485_RX_VERIFIED_DATA.fcToScMosfetPWM = dataFromRx[++i];
 	RS485_RX_VERIFIED_DATA.motorPWM = dataFromRx[++i];
 
-	for (uint8_t k = 0; k < 4; k++) {
+	for (uint8_t k = 0; k < 4; k++)
+	{
 		RS485_RX_VERIFIED_DATA.SC_V.array[k] = dataFromRx[++i];
 	}
 
-	for (uint8_t k = 0; k < 4; k++) {
+	for (uint8_t k = 0; k < 4; k++)
+	{
 		RS485_RX_VERIFIED_DATA.H2_SENSOR_V.array[k] = dataFromRx[++i];
 	}
 
@@ -214,11 +230,13 @@ static void processReceivedData(void) {
  * @fn sendData(void)
  * @brief Funkcja ktorej zadaniem jest obsluga linii TX, powinna zostac umieszczona w wewnatrz rs485_step()
  */
-static void sendData(void) {
+static void sendData(void)
+{
 	static uint16_t cntEndOfTxTick;	//Zmienna wykorzystywana do odliczenia czasu wskazujacego na koniec transmisji
 
 	//Sprawdz czy wyslano cala ramke danych
-	if (posInTxTab < TX_FRAME_LENGHT) {
+	if (posInTxTab < TX_FRAME_LENGTH)
+	{
 		//Nie, wysylaj dalej
 		RS485_BUFF.tx = dataToTx[posInTxTab];
 
@@ -228,10 +246,14 @@ static void sendData(void) {
 		__enable_irq();
 
 		posInTxTab++;
-	} else if (cntEndOfTxTick < TX_FRAME_LENGHT) {
+	}
+	else if (cntEndOfTxTick < TX_FRAME_LENGTH)
+	{
 		//Cala ramka danych zostala wyslana, zacznij odliczac "czas przerwy" pomiedzy przeslaniem kolejnej ramki
 		cntEndOfTxTick++;
-	} else {
+	}
+	else
+	{
 		//Przygotuj nowe dane do wysylki
 		cntEndOfTxTick = 0;
 		posInTxTab = 0;
@@ -244,11 +266,12 @@ static void sendData(void) {
  * @fn prepareNewDataToSend(void)
  * @brief Funkcja przygotowujaca dane do wysylki, wykorzystana wewnatrz sendData(void)
  */
-static void prepareNewDataToSend(void) {
+static void prepareNewDataToSend(void)
+{
 	uint8_t j = 0;
 
-	///< Stany przyciskow
-	dataToTx[j] = BUTTONS.halfGas;
+	dataToTx[j] = SOT_BYTE;
+	dataToTx[++j] = BUTTONS.halfGas;
 	dataToTx[++j] = BUTTONS.fullGas;
 	dataToTx[++j] = BUTTONS.horn;
 	dataToTx[++j] = BUTTONS.speedReset;
@@ -258,21 +281,16 @@ static void prepareNewDataToSend(void) {
 	dataToTx[++j] = BUTTONS.fuelcellPrepareToRace;
 	dataToTx[++j] = BUTTONS.fuelcellRace;
 
+	dataToTx[++j] = HAL_CRC_Calculate(&hcrc, (uint32_t*) dataToTx, (TX_FRAME_LENGTH - 2));
 	dataToTx[++j] = EOT_BYTE;
-
-	//OBLICZ SUME KONTROLNA
-	uint8_t calculatedCrcSumOnMCU = HAL_CRC_Calculate(&hcrc,
-			(uint32_t*) dataToTx, (TX_FRAME_LENGHT - 2));
-
-	//Wrzuc obliczona sume kontrolna na koniec wysylanej tablicy
-	dataToTx[TX_FRAME_LENGHT - 1] = calculatedCrcSumOnMCU;
 }
 
 /**
  * @fn resetActData
  * @brief Zerowanie zmiennych docelowych (odbywa sie m.in w przypadku zerwania transmisji)
  */
-static void resetActData(void) {
+static void resetActData(void)
+{
 	RS485_RX_VERIFIED_DATA.interimSpeed = 0;
 	RS485_RX_VERIFIED_DATA.averageSpeed = 0;
 
@@ -280,32 +298,38 @@ static void resetActData(void) {
 	RS485_RX_VERIFIED_DATA.laptime_seconds = 0;
 	RS485_RX_VERIFIED_DATA.laptime_miliseconds.value = 0;
 
-	for (uint8_t k = 0; k < 4; k++) {
+	for (uint8_t k = 0; k < 4; k++)
+	{
 		RS485_RX_VERIFIED_DATA.FC_V.array[k] = 0;
 	}
 
-	for (uint8_t k = 0; k < 4; k++) {
+	for (uint8_t k = 0; k < 4; k++)
+	{
 		RS485_RX_VERIFIED_DATA.FC_TEMP.array[k] = 0;
 	}
 
 	RS485_RX_VERIFIED_DATA.fcFanRPM.value = 0;
 
-	for (uint8_t k = 0; k < 4; k++) {
+	for (uint8_t k = 0; k < 4; k++)
+	{
 		RS485_RX_VERIFIED_DATA.CURRENT_SENSOR_FC_TO_SC.array[k] = 0;
 	}
 
-	for (uint8_t k = 0; k < 4; k++) {
+	for (uint8_t k = 0; k < 4; k++)
+	{
 		RS485_RX_VERIFIED_DATA.CURRENT_SENSOR_SC_TO_MOTOR.array[k] = 0;
 	}
 
 	RS485_RX_VERIFIED_DATA.fcToScMosfetPWM = 0;
 	RS485_RX_VERIFIED_DATA.motorPWM = 0;
 
-	for (uint8_t k = 0; k < 4; k++) {
+	for (uint8_t k = 0; k < 4; k++)
+	{
 		RS485_RX_VERIFIED_DATA.SC_V.array[k] = 0;
 	}
 
-	for (uint8_t k = 0; k < 4; k++) {
+	for (uint8_t k = 0; k < 4; k++)
+	{
 		RS485_RX_VERIFIED_DATA.H2_SENSOR_V.array[k] = 0;
 	}
 
