@@ -35,39 +35,15 @@ typedef struct
   ///< https://www.geeksforgeeks.org/is-sizeof-for-a-struct-equal-to-the-sum-of-sizeof-of-each-member/
   union
   {
-    float value;
-    char array[4];
-  } FC_V;
+      float value;
+      char array[4];
+  } TOTAL_POWER;
 
   union
-  {
-    float value;
-    char array[4];
-  } FC_TEMP;
-
-  union
-  {
-    float value;
-    char array[4];
-  } CURRENT_SENSOR_FC_TO_SC;
-
-  union
-  {
-    float value;
-    char array[4];
-  } CURRENT_SENSOR_SC_TO_MOTOR;
-
-  union
-  {
-    float value;
-    char array[4];
-  } SC_V;
-
-  union
-  {
-    float value;
-    char array[4];
-  } H2_SENSOR_V;
+    {
+        float value;
+        char array[4];
+    } hydrogen_usage;
 
   union
   {
@@ -76,26 +52,30 @@ typedef struct
   } laptime_minutes;
 
   union
+    {
+      uint16_t value;
+      char array[2];
+    } delta_laptime_minutes;
+
+  union
   {
     uint16_t value;
     char array[2];
   } laptime_miliseconds;
 
   union
-  {
-    uint16_t value;
-    char array[2];
-  } fcFanRPM;
+    {
+      uint16_t value;
+      char array[2];
+    } delta_laptime_miliseconds;
+
 
   uint8_t interimSpeed;
-  uint8_t averageSpeed;
   uint8_t laptime_seconds;
+  uint8_t delta_laptime_seconds;
 
   uint8_t electrovalve;
   uint8_t purgeValve;
-
-  uint8_t fcToScMosfetPWM;
-  uint8_t motorPWM;
 
   uint8_t h2SensorDigitalPin;
   uint8_t emergencyButton;
